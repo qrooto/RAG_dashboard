@@ -1,0 +1,11 @@
+# Chroma DB
+db/
+index/
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+.env
+.venv/
+
