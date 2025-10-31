@@ -39,7 +39,13 @@ def semantic_search(query: str, k=5):
     coll = load_chroma()
     model = SentenceTransformer(EMB_NAME)
     qe = model.encode([query], normalize_embeddings=True)[0]
-    res = coll.query(query_embeddings=[qe.tolist()], n_results=k, include=["documents","metadatas","distances"])
+    if k and k > 0:
+        n_results = k
+    else:
+        # взять все документы
+        all_ids = coll.get(include=["metadatas"], where={})["ids"]
+        n_results = len(all_ids)
+    res = coll.query(query_embeddings=[qe.tolist()], n_results=n_results, include=["documents","metadatas","distances"])
     hits = []
     for i in range(len(res["ids"][0])):
         hits.append({
@@ -57,7 +63,10 @@ def hybrid_search(query: str, k=5, alpha=0.5, early_fusion=False):
     bm = _load_bm25()
     tokens = tokenize_for_bm25(query)
     bm_scores = bm["bm25"].get_scores(tokens)
-    topN = min(200, len(bm_scores))
+    if k and k > 0:
+        topN = min(200, len(bm_scores))
+    else:
+        topN = len(bm_scores)
     idxs = sorted(range(len(bm_scores)), key=lambda i: bm_scores[i], reverse=True)[:topN]
 
     if early_fusion:
@@ -78,7 +87,12 @@ def hybrid_search(query: str, k=5, alpha=0.5, early_fusion=False):
         return hits
 
     coll = load_chroma()
-    sem_res = coll.query(query_texts=[query], n_results=k, include=["documents","metadatas","distances"])
+    if k and k > 0:
+        n_results = k
+    else:
+        all_ids = coll.get(include=["metadatas"], where={})["ids"]
+        n_results = len(all_ids)
+    sem_res = coll.query(query_texts=[query], n_results=n_results, include=["documents","metadatas","distances"])
     sem_hits = {
         sem_res["ids"][0][i]: {
             "id": sem_res["ids"][0][i],
@@ -88,7 +102,8 @@ def hybrid_search(query: str, k=5, alpha=0.5, early_fusion=False):
         } for i in range(len(sem_res["ids"][0]))
     }
     bm_hits = {}
-    for rank, i in enumerate(idxs[:k*3]):
+    limit_bm = (k*3) if (k and k > 0) else len(idxs)
+    for rank, i in enumerate(idxs[:limit_bm]):
         bm_hits[bm["ids"][i]] = {
             "id": bm["ids"][i],
             "chunk": bm["documents"][i],
@@ -117,4 +132,4 @@ def hybrid_search(query: str, k=5, alpha=0.5, early_fusion=False):
             "meta": (s.get("meta") or b.get("meta"))
         })
     merged.sort(key=lambda x: x["score"], reverse=True)
-    return merged[:k]
+    return merged if (not k or k <= 0) else merged[:k]

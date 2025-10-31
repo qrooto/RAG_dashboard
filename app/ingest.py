@@ -1,5 +1,6 @@
 import os, uuid, pandas as pd
 from typing import List, Dict
+import logging, math
 from sentence_transformers import SentenceTransformer
 import chromadb
 from chromadb.config import Settings
@@ -10,6 +11,7 @@ import hashlib
 CHROMA_PATH = "index/chroma"
 COLL = "ftx_msgs"
 EMB_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+logger = logging.getLogger("ingest")
 
 def chunk_text(text: str, size=500, overlap=50):
     text = normalize_text(text)
@@ -51,11 +53,14 @@ def ingest_csvs(paths: List[str] | None = None, overwrite: bool=False):
         paths = [os.path.join("data", p) for p in os.listdir("data") if p.endswith(".csv")]
     assert paths, "Нет CSV для загрузки"
 
+    logger.info("Ingest started: overwrite=%s, csv_files=%d", overwrite, len(paths))
     model = SentenceTransformer(EMB_NAME)
 
     rows = []
+    total_rows = 0
     for p in paths:
         df = pd.read_csv(p)
+        logger.info("Reading CSV: %s (rows=%d)", p, len(df))
         for _, r in df.iterrows():
             text = str(r.get("text", "") or "")
             if not text.strip():
@@ -77,11 +82,17 @@ def ingest_csvs(paths: List[str] | None = None, overwrite: bool=False):
                         "ingested_at": datetime.utcnow().isoformat()
                     }
                 })
+        total_rows += len(df)
+
+    logger.info("Prepared chunks: total_rows=%d, raw_chunks=%d", total_rows, len(rows))
 
     seen = set()
+    before = len(rows)
     rows = dedup_keep_first(rows, seen)
+    logger.info("Deduplicated: kept=%d, removed=%d", len(rows), before - len(rows))
 
     B = 256
+    total_batches = max(1, math.ceil(len(rows) / B))
     for i in range(0, len(rows), B):
         batch = rows[i:i+B]
         texts = [r["chunk"] for r in batch]
@@ -92,4 +103,6 @@ def ingest_csvs(paths: List[str] | None = None, overwrite: bool=False):
             embeddings=embs.tolist(),
             metadatas=[r["meta"] for r in batch]
         )
+        logger.info("Added batch %d/%d (size=%d)", (i // B) + 1, total_batches, len(batch))
+    logger.info("Ingest finished: ingested=%d, csv_count=%d", len(rows), len(paths))
     return {"ingested": len(rows), "csv_count": len(paths)}

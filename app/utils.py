@@ -2,7 +2,7 @@ import re
 import nltk
 from nltk.corpus import stopwords
 nltk.download('punkt', quiet=True); nltk.download('stopwords', quiet=True)
-STOP = set(stopwords.words('russian') | stopwords.words('english'))
+STOP = set(stopwords.words('russian')) | set(stopwords.words('english'))
 
 def normalize_text(t: str) -> str:
     t = (t or "").strip()

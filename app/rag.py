@@ -12,7 +12,8 @@ def format_context(hits: List[Dict]) -> str:
     return "\n---\n".join(lines)
 
 def ask_ollama_llama3(prompt: str) -> str:
-    endpoint = os.environ.get("OLLAMA_ENDPOINT", "http://ollama:11434")
+    # По умолчанию пробуем локальный Ollama, в Docker будет переопределено через env
+    endpoint = os.environ.get("OLLAMA_ENDPOINT", "http://127.0.0.1:11434")
     url = f"{endpoint.rstrip('/')}/api/generate"
     try:
         r = requests.post(url, json={"model": "llama3", "prompt": prompt, "stream": False}, timeout=120)
@@ -20,6 +21,7 @@ def ask_ollama_llama3(prompt: str) -> str:
         js = r.json()
         return js.get("response", "")
     except Exception:
+        # Fallback на subprocess (если HTTP API недоступен)
         proc = subprocess.run(
             ["ollama", "run", "llama3"],
             input=prompt.encode("utf-8"),
